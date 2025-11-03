@@ -36,11 +36,14 @@ MODULE_VERSION("0.1-draft");
 // --------------------------------
 #define DEVICE_NAME "simtemp"
 
+#define NXP_SIMTEMP_MODE_STR_LEN    16
+
 //#define DEBUG_SIMTEMP_EXECOPEN
 //#define DEBUG_SIMTEMP_EXECRELEASE
 #define DEBUG_SIMTEMP_EXECREAD
 #define DEBUG_SIMTEMP_EXECWRITE
 //#define DEBUG_SIMTEMP_EXECPOLL
+#define DEBU_SIMTEMP_SYSFSMODESET
 
 //#define DEBUG_SIMTEMP_SAMPLING    1
 
@@ -113,7 +116,7 @@ static ssize_t nxp_simtemp_write(struct file *filep, const char *bufferp, size_t
     #ifdef DEBUG_SIMTEMP_EXECWRITE
         pr_info("[%s] Write callback not implemented.\n", DEVICE_NAME);
     #endif
-    return 0;
+    return -EPERM;
 }
 
 static unsigned int nxp_simtemp_poll(struct file *filep, struct poll_table_struct *waitp)
@@ -141,66 +144,79 @@ static unsigned int nxp_simtemp_poll(struct file *filep, struct poll_table_struc
 static long nxp_simtemp_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
     long retVal = 0;
-    unsigned int fromUserSampling;
-    int fromUserThreshold;
-    unsigned char fromUserMode;
+    unsigned int lsampling;
+    int lthreshold;
+    unsigned char lmode;
+    unsigned int lstats = 0;
 
     switch(cmd) {
         case NXP_SIMTEMP_GET_SAMPLINGMS:
-            if(copy_to_user((unsigned int __user *)arg, &nxp_simtemp_sampling_ms, sizeof(nxp_simtemp_sampling_ms)))
+            lsampling = nxp_simtemp_sampling_ms;
+            if(copy_to_user((unsigned int __user *)arg, &lsampling, sizeof(nxp_simtemp_sampling_ms)))
             {
                 retVal = -EFAULT;
             }
             break;
         case NXP_SIMTEMP_SET_SAMPLINGMS:
-            if(copy_from_user(&fromUserSampling, (unsigned int __user *)arg, sizeof(nxp_simtemp_sampling_ms)))
+            if(copy_from_user(&lsampling, (unsigned int __user *)arg, sizeof(nxp_simtemp_sampling_ms)))
             {
                 retVal = -EFAULT;
             }
             else
             {
-                nxp_simtemp_sampling_ms = fromUserSampling;
+                nxp_simtemp_sampling_ms = lsampling;
             }
             break;
         case NXP_SIMTEMP_GET_THRESHOLDMC:
-            if(copy_to_user((int __user *)arg, &nxp_simtemp_threshold_mc, sizeof(nxp_simtemp_threshold_mc)))
+            lthreshold = nxp_simtemp_threshold_mc;
+            if(copy_to_user((int __user *)arg, &lthreshold, sizeof(nxp_simtemp_threshold_mc)))
             {
                 retVal = -EFAULT;
             }
             break;
         case NXP_SIMTEMP_SET_THRESHOLDMC:
-            if(copy_from_user(&fromUserThreshold, (int __user *)arg, sizeof(nxp_simtemp_threshold_mc)))
+            if(copy_from_user(&lthreshold, (int __user *)arg, sizeof(nxp_simtemp_threshold_mc)))
             {
                 retVal = -EFAULT;
             }
             else
             {
-                nxp_simtemp_threshold_mc = fromUserThreshold;
+                nxp_simtemp_threshold_mc = lthreshold;
             }
             break;
         case NXP_SIMTEMP_GET_MODE:
-            if(copy_to_user((unsigned char __user *)arg, &nxp_simtemp_mode, sizeof(nxp_simtemp_mode)))
+            lmode = nxp_simtemp_mode;
+            if(copy_to_user((unsigned char __user *)arg, &lmode, sizeof(nxp_simtemp_mode)))
             {
                 retVal = -EFAULT;
             }
             break;
         case NXP_SIMTEMP_SET_MODE:
-            if(copy_from_user(&fromUserMode, (unsigned char __user *)arg, sizeof(nxp_simtemp_mode)))
+            if(copy_from_user(&lmode, (unsigned char __user *)arg, sizeof(nxp_simtemp_mode)))
             {
                 retVal = -EFAULT;
             }
             else
             {
-                nxp_simtemp_mode = fromUserMode;
+                if((NXP_SIMTEMP_MODE_NORMAL == lmode) || (NXP_SIMTEMP_MODE_NOISY == lmode) || (NXP_SIMTEMP_MODE_RAMP == lmode))
+                {
+                    nxp_simtemp_mode = lmode;
+                }
+                else
+                {
+                    retVal = -EINVAL;
+                }
             }
             break;
         case NXP_SIMTEMP_GET_STATS:
-            if(copy_to_user((unsigned int __user *)arg, &nxp_simtemp_sampling_ms, sizeof(nxp_simtemp_sampling_ms)))
+            if(copy_to_user((unsigned int __user *)arg, &lstats, sizeof(nxp_simtemp_sampling_ms)))
             {
                 retVal = -EFAULT;
             }
             break;
-
+        default:
+            retVal = -EINVAL;
+        break;
     };
     return retVal;
 }
@@ -212,20 +228,92 @@ static long nxp_simtemp_ioctl(struct file *filep, unsigned int cmd, unsigned lon
 // --------------------------------
 static ssize_t sampling_ms_show(const struct class *classp, const struct class_attribute *attrp, char *bufp)
 {
-    return sysfs_emit(bufp, "%u\n", nxp_simtemp_sampling_ms);
+    unsigned int lsampling_ms;
+
+    lsampling_ms = nxp_simtemp_sampling_ms;
+    return sysfs_emit(bufp, "%u\n", lsampling_ms);
 }
-static ssize_t sampling_ms_store(const struct class *classp, const struct class_attribute *attrp, const char *buf, size_t count)
+static ssize_t sampling_ms_store(const struct class *classp, const struct class_attribute *attrp, const char *bufp, size_t count)
 {
+    unsigned int lsampling;
+
+    if(kstrtouint(bufp, 10, &lsampling) < 0)
+    {
+        return -EINVAL;
+    }
+    nxp_simtemp_sampling_ms = lsampling;
+
     return count;
 }
 
 static ssize_t threshold_mc_show(const struct class *classp, const struct class_attribute *attrp, char *bufp)
 {
-    return sysfs_emit(bufp, "%u\n", nxp_simtemp_threshold_mc);
+    int lthreshold_mc;
+
+    lthreshold_mc = nxp_simtemp_threshold_mc;
+    return sysfs_emit(bufp, "%i\n",  lthreshold_mc);
 }
-static ssize_t threshold_mc_store(const struct class *classp, const struct class_attribute *attrp, const char *buf, size_t count)
+static ssize_t threshold_mc_store(const struct class *classp, const struct class_attribute *attrp, const char *bufp, size_t count)
 {
+    int lthreshold;
+
+    if(kstrtoint(bufp, 10, &lthreshold) < 0)
+    {
+        return -EINVAL;
+    }
+    nxp_simtemp_threshold_mc = lthreshold;
+
     return count;
+}
+
+static ssize_t mode_show(const struct class *classp, const struct class_attribute *attrp, char *bufp)
+{
+    unsigned char lmode;
+
+    lmode = nxp_simtemp_mode;
+    if(NXP_SIMTEMP_MODE_NORMAL == lmode) {
+        return sysfs_emit(bufp, "normal\n");
+    } else if(NXP_SIMTEMP_MODE_NOISY == lmode) {
+        return sysfs_emit(bufp, "noisy\n");
+    } else if(NXP_SIMTEMP_MODE_RAMP == lmode) {
+        return sysfs_emit(bufp, "ramp\n");
+    } else {
+        return sysfs_emit(bufp, "error!\n");
+    }
+}
+static ssize_t mode_store(const struct class *classp, const struct class_attribute *attrp, const char *bufp, size_t count)
+{
+    char lmodeStr[NXP_SIMTEMP_MODE_STR_LEN] = {'\0'};
+    unsigned char lmode = 0;
+
+    #ifdef DEBU_SIMTEMP_SYSFSMODESET
+        pr_info("[%s] mode_store start .\n", DEVICE_NAME);
+    #endif
+
+    snprintf(lmodeStr, sizeof(lmodeStr), "%.*s", (int)count, bufp);
+    lmodeStr[count-1] = '\0';
+
+    if(strncmp(lmodeStr, "normal", NXP_SIMTEMP_MODE_STR_LEN) == 0) {
+        lmode = NXP_SIMTEMP_MODE_NORMAL;
+    } else if(strncmp(lmodeStr, "noisy", NXP_SIMTEMP_MODE_STR_LEN) == 0) {
+        lmode = NXP_SIMTEMP_MODE_NOISY;
+    } else if(strncmp(lmodeStr, "ramp", NXP_SIMTEMP_MODE_STR_LEN) == 0) {
+        lmode = NXP_SIMTEMP_MODE_RAMP;
+    } else {
+        lmode = 0;
+    }
+
+    if(lmode != 0)
+    {
+        nxp_simtemp_mode = lmode;
+    }
+
+    return count;
+}
+
+static ssize_t stats_show(const struct class *classp, const struct class_attribute *attrp, char *bufp)
+{
+    return sysfs_emit(bufp, "%u\n",  0);
 }
 
 
@@ -281,12 +369,14 @@ static struct miscdevice nxp_simtemp_miscdevice = {
 //static struct class_attribute nxp_simtemp_attr_samplingms = __CLASS_ATTR(nxp_simtemp_sampling_ms, 0666, nxp_simtemp_attr_samplingms_show, nxp_simtemp_attr_samplingms_store);
 static CLASS_ATTR_RW(sampling_ms);
 static CLASS_ATTR_RW(threshold_mc);
+static CLASS_ATTR_RW(mode);
+static CLASS_ATTR_RO(stats);
 
-static struct class_attribute *nxp_simtemp_attrs[] = {
+/*static struct class_attribute *nxp_simtemp_attrs[] = {
     &class_attr_sampling_ms,
     &class_attr_threshold_mc,
     NULL,
-};
+};*/
 
 // --------------------------------
 // --------------------------------
@@ -301,7 +391,7 @@ static int __init nxp_simtemp_init(void)
     // Not available values from DT, set default values.
     nxp_simtemp_sampling_ms = 100;
     nxp_simtemp_threshold_mc = 45000;
-    nxp_simtemp_mode = 0; // normal
+    nxp_simtemp_mode = NXP_SIMTEMP_MODE_NORMAL;
 
     nxp_simtemp_sample.timestamp_ns = 0;
     nxp_simtemp_sample.temp_mc = 25600; //0;
@@ -328,6 +418,8 @@ static int __init nxp_simtemp_init(void)
 
     retVal = class_create_file(nxp_simtemp_class, &class_attr_sampling_ms);
     retVal = class_create_file(nxp_simtemp_class, &class_attr_threshold_mc);
+    retVal = class_create_file(nxp_simtemp_class, &class_attr_mode);
+    retVal = class_create_file(nxp_simtemp_class, &class_attr_stats);
 //    retVal = class_create_files(nxp_simtemp_class, &nxp_simtemp_attrs);
     if(retVal)
     {
@@ -357,6 +449,8 @@ static void __exit nxp_simtemp_exit(void)
 
     class_remove_file(nxp_simtemp_class, &class_attr_sampling_ms);
     class_remove_file(nxp_simtemp_class, &class_attr_threshold_mc);
+    class_remove_file(nxp_simtemp_class, &class_attr_mode);
+    class_remove_file(nxp_simtemp_class, &class_attr_stats);
 //    class_remove_file(nxp_simtemp_class, &nxp_simtemp_attrs);
     class_destroy(nxp_simtemp_class);
 

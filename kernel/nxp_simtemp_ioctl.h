@@ -5,6 +5,10 @@
 
 #define NXP_SIMTEMP_TYPE    's'
 
+#define NXP_SIMTEMP_MODE_NORMAL    'n'
+#define NXP_SIMTEMP_MODE_NOISY     's'
+#define NXP_SIMTEMP_MODE_RAMP      'r'
+
 // IOCTL commands.
 #define NXP_SIMTEMP_GET_SAMPLINGMS    _IOR(NXP_SIMTEMP_TYPE, 1, unsigned int)
 #define NXP_SIMTEMP_SET_SAMPLINGMS    _IOW(NXP_SIMTEMP_TYPE, 2, unsigned int)
